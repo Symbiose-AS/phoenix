@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
 # Idempotent Cloud Agent install for Arize Phoenix.
 #
-# Phoenix 4.12.0 pins several dependencies (e.g. strawberry-graphql==0.235.0)
-# and leaves others unpinned. On modern Python those unpinned deps resolve to
-# versions that are incompatible with Phoenix. CI runs on Python 3.8, which
-# caps the resolver to the contemporaneous, mutually-compatible releases, so we
-# mirror that here using a uv-managed Python 3.8 interpreter.
+# Phoenix 4.12.0 pins a few dependencies (e.g. strawberry-graphql==0.235.0) but
+# leaves most unpinned. Installed today on a modern interpreter, those unpinned
+# deps resolve to versions that are incompatible with Phoenix (pydantic>=2.10,
+# uvicorn>=0.30, starlette>=0.38, setuptools>=80, ...). Instead of pinning each
+# one, we resolve the whole dependency graph as of just after the 4.12.0 release
+# using uv's --exclude-newer, which reproduces the versions Phoenix was built
+# against. Python 3.11 matches the production Dockerfile.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-PY_VERSION="3.8"
-SQLEAN_PIN="sqlean.py==3.45.1"   # newest release with a cp38 wheel (newer ones ship a broken sdist)
+PY_VERSION="3.11"
+EXCLUDE_NEWER="2024-07-19"   # arize-phoenix 4.12.0 was released 2024-07-18
 
 # --- uv (Python toolchain manager) ---------------------------------------
 if ! command -v uv >/dev/null 2>&1; then
@@ -20,29 +22,28 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 export PATH="$HOME/.local/bin:$PATH"
 
-# --- Python 3.8 backend venv ---------------------------------------------
+# --- Python 3.11 backend venv --------------------------------------------
 uv python install "$PY_VERSION"
 if [ ! -x ".venv/bin/python" ]; then
   uv venv --python "$PY_VERSION" .venv
 fi
 
-# sqlean.py must be pinned before the editable install so its cp38 wheel is used
-# instead of the newer, source-only (and broken) distribution.
-uv pip install --python .venv "$SQLEAN_PIN"
+COMMON=(--python .venv --exclude-newer "$EXCLUDE_NEWER")
 
-# Core Phoenix (editable) — this is what runs the server.
-uv pip install --python .venv -e "."
+# Core Phoenix (editable) plus setuptools, which Phoenix imports at runtime
+# (pkg_resources). setuptools resolved at the cutoff still ships pkg_resources.
+uv pip install "${COMMON[@]}" -e "." setuptools
 
 # Dev toolchain: linting, type-checking, and the test runner + drivers/helpers
 # used by the bulk of the suite. Heavy LLM-integration extras (litellm, arize,
-# tokenizers, ...) are intentionally omitted because they lack Python 3.8 wheels
-# and are not needed to run Phoenix; install them on demand when needed.
-uv pip install --python .venv \
+# tokenizers, ...) are intentionally omitted; install them on demand if needed.
+uv pip install "${COMMON[@]}" \
   "ruff==0.4.9" "mypy==1.10.0" \
   "pytest==8.2.2" pytest-asyncio pytest-cov pytest-postgresql \
   asyncpg "psycopg[binary]" \
   responses respx nest-asyncio tenacity \
-  "pandas-stubs==2.0.3.230814" types-tabulate types-psutil types-tqdm \
+  pydantic \
+  pandas-stubs types-tabulate types-psutil types-tqdm \
   types-protobuf types-setuptools types-cachetools
 
 # --- Web app -------------------------------------------------------------
