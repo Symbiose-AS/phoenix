@@ -5,6 +5,10 @@
 node_modules
 dist
 sdist
+
+# Python virtual environments
+.venv
+venv
 *__pycache__*
 **/.pytest_cache
 **/.ipynb_checkpoints/

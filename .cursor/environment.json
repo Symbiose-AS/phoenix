@@ -1,0 +1,15 @@
+{
+  "name": "Arize Phoenix",
+  "install": "bash .cursor/install.sh",
+  "terminals": [
+    {
+      "name": "phoenix-server",
+      "command": ".venv/bin/python -m phoenix.server.main serve",
+      "description": "Phoenix server: web UI on http://localhost:6006 and OTLP gRPC collector on port 4317 (SQLite-backed)."
+    }
+  ],
+  "ports": [
+    { "name": "phoenix-ui", "port": 6006 },
+    { "name": "otlp-grpc", "port": 4317 }
+  ]
+}
